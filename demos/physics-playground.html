@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Physics Playground</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060f; font-family: 'Segoe UI', system-ui, sans-serif; }
+  canvas { display: block; cursor: crosshair; }
+
+  #hud {
+    position: fixed; top: 16px; left: 16px; color: #cfd8ff;
+    background: rgba(10, 14, 30, 0.55); backdrop-filter: blur(10px);
+    border: 1px solid rgba(120, 140, 255, 0.25); border-radius: 12px;
+    padding: 14px 18px; user-select: none; max-width: 280px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  #hud h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 8px; color: #fff; }
+  #hud p { font-size: 12px; line-height: 1.55; opacity: 0.85; }
+  #hud kbd {
+    background: rgba(120,140,255,0.15); border: 1px solid rgba(120,140,255,0.35);
+    border-radius: 4px; padding: 1px 5px; font-size: 11px; font-family: inherit;
+  }
+  #mode {
+    position: fixed; top: 16px; right: 16px; color: #fff;
+    background: rgba(10, 14, 30, 0.55); backdrop-filter: blur(10px);
+    border: 1px solid rgba(120, 140, 255, 0.25); border-radius: 12px;
+    padding: 10px 16px; font-size: 13px; user-select: none;
+  }
+  #mode b { color: #8fa3ff; }
+  #stats {
+    position: fixed; bottom: 14px; left: 16px; color: rgba(207,216,255,0.5);
+    font-size: 11px; user-select: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <h1>⚛ Physics Playground</h1>
+  <p>
+    <kbd>Click + drag</kbd> apply force<br>
+    <kbd>1</kbd> Attract &nbsp; <kbd>2</kbd> Repel &nbsp; <kbd>3</kbd> Black hole<br>
+    <kbd>Space</kbd> gravity &nbsp; <kbd>G</kbd> trails &nbsp; <kbd>R</kbd> reset<br>
+    <kbd>↑</kbd><kbd>↓</kbd> speed &nbsp; <kbd>Scroll</kbd> force strength
+  </p>
+</div>
+<div id="mode">Mode: <b id="modeName">Attract</b></div>
+<div id="stats"></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const modeName = document.getElementById('modeName');
+  const stats = document.getElementById('stats');
+
+  let W, H, DPR;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------- State ----------
+  const MODES = ['Attract', 'Repel', 'Black hole'];
+  let mode = 0;
+  let gravityOn = true;
+  let trailsOn = true;
+  let forceStrength = 1.0;
+  let speed = 1.0;
+  const GRAVITY = 0.35;
+  const mouse = { x: -9999, y: -9999, down: false };
+
+  // ---------- Particles ----------
+  const PALETTE = ['#5eead4', '#818cf8', '#f472b6', '#fbbf24', '#34d399', '#60a5fa', '#fb7185', '#c084fc'];
+  const particles = [];
+  const MAX_PARTICLES = 400;
+
+  function spawn(x, y, burst = false) {
+    const r = 3 + Math.random() * 7;
+    const a = Math.random() * Math.PI * 2;
+    const s = burst ? 2 + Math.random() * 6 : Math.random() * 2;
+    particles.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      r,
+      m: r * r,
+      hue: PALETTE[(Math.random() * PALETTE.length) | 0],
+      life: 1
+    });
+  }
+
+  function reset() {
+    particles.length = 0;
+    for (let i = 0; i < 120; i++) {
+      spawn(Math.random() * W, Math.random() * H * 0.6);
+    }
+  }
+  reset();
+
+  // ---------- Input ----------
+  window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mousedown', e => {
+    mouse.down = true;
+    for (let i = 0; i < 12; i++) spawn(e.clientX, e.clientY, true);
+  });
+  window.addEventListener('mouseup', () => mouse.down = false);
+  window.addEventListener('mouseleave', () => { mouse.down = false; mouse.x = -9999; });
+
+  window.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    mouse.x = t.clientX; mouse.y = t.clientY; mouse.down = true;
+    for (let i = 0; i < 12; i++) spawn(t.clientX, t.clientY, true);
+  }, { passive: true });
+  window.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    mouse.x = t.clientX; mouse.y = t.clientY;
+  }, { passive: true });
+  window.addEventListener('touchend', () => { mouse.down = false; mouse.x = -9999; });
+
+  window.addEventListener('wheel', e => {
+    forceStrength = Math.min(4, Math.max(0.2, forceStrength + (e.deltaY < 0 ? 0.15 : -0.15)));
+  }, { passive: true });
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space') { e.preventDefault(); gravityOn = !gravityOn; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); speed = Math.min(3, speed + 0.1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); speed = Math.max(0.1, speed - 0.1); }
+    if (e.key === '1') setMode(0);
+    if (e.key === '2') setMode(1);
+    if (e.key === '3') setMode(2);
+    if (e.key === 'g' || e.key === 'G') trailsOn = !trailsOn;
+    if (e.key === 'r' || e.key === 'R') reset();
+  });
+
+  function setMode(m) {
+    mode = m;
+    modeName.textContent = MODES[m];
+  }
+
+  // ---------- Physics ----------
+  function step() {
+    const active = mouse.down;
+    const bh = mode === 2;
+
+    for (const p of particles) {
+      // Gravity
+      if (gravityOn) p.vy += GRAVITY * (p.r / 6);
+
+      // Mouse force
+      if (active) {
+        const dx = mouse.x - p.x;
+        const dy = mouse.y - p.y;
+        const d2 = dx * dx + dy * dy;
+        const d = Math.sqrt(d2) || 1;
+        if (d < 400) {
+          let f;
+          if (bh) {
+            // Black hole: strong inverse-square pull + tangential swirl
+            f = (900 * forceStrength) / Math.max(d2, 400);
+            p.vx += (dx / d) * f + (-dy / d) * f * 0.55;
+            p.vy += (dy / d) * f + (dx / d) * f * 0.55;
+            // Event horizon: consume
+            if (d < 14) p.life = 0;
+          } else {
+            f = (mode === 0 ? 1 : -1) * (2.2 * forceStrength) * (1 - d / 400);
+            p.vx += (dx / d) * f;
+            p.vy += (dy / d) * f;
+          }
+        }
+      }
+
+      // Damping
+      p.vx *= 0.995;
+      p.vy *= 0.995;
+
+      p.x += p.vx * speed;
+      p.y += p.vy * speed;
+
+      // Walls (elastic bounce)
+      if (p.x - p.r < 0)      { p.x = p.r;     p.vx = Math.abs(p.vx) * 0.85; }
+      if (p.x + p.r > W)      { p.x = W - p.r;  p.vx = -Math.abs(p.vx) * 0.85; }
+      if (p.y - p.r < 0)      { p.y = p.r;      p.vy = Math.abs(p.vy) * 0.85; }
+      if (p.y + p.r > H)      { p.y = H - p.r;  p.vy = -Math.abs(p.vy) * 0.85; }
+    }
+
+    // Pairwise elastic collisions (spatial grid for performance)
+    const cell = 24;
+    const grid = new Map();
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      const key = ((p.x / cell) | 0) + ',' + ((p.y / cell) | 0);
+      let arr = grid.get(key);
+      if (!arr) grid.set(key, arr = []);
+      arr.push(i);
+    }
+    for (let i = 0; i < particles.length; i++) {
+      const a = particles[i];
+      const cx = (a.x / cell) | 0, cy = (a.y / cell) | 0;
+      for (let gx = cx - 1; gx <= cx + 1; gx++) {
+        for (let gy = cy - 1; gy <= cy + 1; gy++) {
+          const arr = grid.get(gx + ',' + gy);
+          if (!arr) continue;
+          for (const j of arr) {
+            if (j <= i) continue;
+            const b = particles[j];
+            const dx = b.x - a.x, dy = b.y - a.y;
+            const minD = a.r + b.r;
+            const d2 = dx * dx + dy * dy;
+            if (d2 >= minD * minD || d2 === 0) continue;
+            const d = Math.sqrt(d2);
+            const nx = dx / d, ny = dy / d;
+            // Separate overlap
+            const overlap = (minD - d) / 2;
+            a.x -= nx * overlap; a.y -= ny * overlap;
+            b.x += nx * overlap; b.y += ny * overlap;
+            // Elastic impulse
+            const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+            const velN = rvx * nx + rvy * ny;
+            if (velN < 0) {
+              const imp = -2 * velN / (1 / a.m + 1 / b.m);
+              a.vx -= (imp / a.m) * nx; a.vy -= (imp / a.m) * ny;
+              b.vx += (imp / b.m) * nx; b.vy += (imp / b.m) * ny;
+            }
+          }
+        }
+      }
+    }
+
+    // Remove dead particles, cap count
+    for (let i = particles.length - 1; i >= 0; i--) {
+      if (particles[i].life <= 0) particles.splice(i, 1);
+    }
+    while (particles.length > MAX_PARTICLES) particles.shift();
+  }
+
+  // ---------- Render ----------
+  function render() {
+    if (trailsOn) {
+      ctx.fillStyle = 'rgba(5, 6, 15, 0.28)';
+      ctx.fillRect(0, 0, W, H);
+    } else {
+      ctx.fillStyle = '#05060f';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Mouse force field indicator
+    if (mouse.down) {
+      const bh = mode === 2;
+      const g = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 400);
+      if (bh) {
+        g.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
+        g.addColorStop(0.15, 'rgba(160, 120, 255, 0.12)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+      } else if (mode === 0) {
+        g.addColorStop(0, 'rgba(94, 234, 212, 0.15)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+      } else {
+        g.addColorStop(0, 'rgba(251, 113, 133, 0.15)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, 400, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (bh) {
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(200, 170, 255, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // Particles with glow
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of particles) {
+      const speed = Math.hypot(p.vx, p.vy);
+      const glow = Math.min(1, 0.35 + speed * 0.08);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 3);
+      g.addColorStop(0, p.hue);
+      g.addColorStop(0.4, p.hue + '66');
+      g.addColorStop(1, 'transparent');
+      ctx.globalAlpha = glow;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = p.hue;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // ---------- Loop ----------
+  let frames = 0, lastFps = performance.now(), fps = 60;
+  function loop() {
+    step();
+    render();
+    frames++;
+    const now = performance.now();
+    if (now - lastFps > 500) {
+      fps = Math.round(frames * 1000 / (now - lastFps));
+      frames = 0; lastFps = now;
+      stats.textContent = `${particles.length} particles · ${fps} fps · force ×${forceStrength.toFixed(2)} · speed ×${speed.toFixed(1)} · gravity ${gravityOn ? 'on' : 'off'}`;
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+</script>
+</body>
+</html>

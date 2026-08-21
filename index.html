@@ -355,10 +355,24 @@
 <main class="grid-section wrap">
   <div class="section-head">
     <h2>Live builds</h2>
-    <span class="count">6 demos</span>
+    <span class="count">7 demos</span>
   </div>
 
   <div class="tile-grid" id="tile-grid">
+
+    <a class="tile" href="demos/physics-playground.html" data-sketch="playground">
+      <div class="tile-thumb">
+        <canvas></canvas>
+        <span class="scanline"></span>
+        <span class="tile-status"><span class="dot"></span>live</span>
+      </div>
+      <div class="tile-body">
+        <span class="tile-tag">PHYSICS</span>
+        <h3>Physics Playground</h3>
+        <p>Interactive 2D physics sandbox with forces, black holes, collisions, and particle trails.</p>
+        <div class="tile-meta">canvas2d · elastic collisions · 400 particles</div>
+      </div>
+    </a>
 
     <a class="tile" href="demos/particle-swarm.html" data-sketch="swarm">
       <div class="tile-thumb">
@@ -526,6 +540,74 @@
   })();
 
   /* ---------------- tile sketches ---------------- */
+
+  function playgroundSketch(canvas){
+    const ctx = canvas.getContext('2d');
+    const colors = ['#5eead4', '#818cf8', '#f472b6', '#fbbf24', '#34d399', '#60a5fa'];
+    let particles = [];
+    let attractor = { x: 0, y: 0, angle: 0 };
+
+    function init(){
+      const { w, h } = dpr(canvas);
+      particles = Array.from({ length: 42 }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 1.6,
+        vy: (Math.random() - 0.5) * 1.6,
+        r: Math.random() * 2 + 1.2,
+        color: colors[Math.floor(Math.random() * colors.length)]
+      }));
+      ctx.fillStyle = '#060a0e';
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    function draw(){
+      const w = canvas.width, h = canvas.height;
+      attractor.angle += 0.03;
+      attractor.x = w / 2 + Math.cos(attractor.angle) * (w * 0.28);
+      attractor.y = h / 2 + Math.sin(attractor.angle * 1.4) * (h * 0.24);
+
+      ctx.fillStyle = 'rgba(6,10,14,0.22)';
+      ctx.fillRect(0, 0, w, h);
+
+      // Force point glow
+      const g = ctx.createRadialGradient(attractor.x, attractor.y, 0, attractor.x, attractor.y, 24);
+      g.addColorStop(0, 'rgba(129,140,248,0.28)');
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(attractor.x, attractor.y, 24, 0, Math.PI * 2);
+      ctx.fill();
+
+      for(const p of particles){
+        const dx = attractor.x - p.x;
+        const dy = attractor.y - p.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const force = 0.9 / Math.max(d * 0.06, 1);
+
+        p.vx += (dx / d) * force * 0.38 + (-dy / d) * force * 0.32;
+        p.vy += (dy / d) * force * 0.38 + (dx / d) * force * 0.32;
+        p.vx *= 0.97;
+        p.vy *= 0.97;
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < p.r) { p.x = p.r; p.vx = Math.abs(p.vx); }
+        if (p.x > w - p.r) { p.x = w - p.r; p.vx = -Math.abs(p.vx); }
+        if (p.y < p.r) { p.y = p.r; p.vy = Math.abs(p.vy); }
+        if (p.y > h - p.r) { p.y = h - p.r; p.vy = -Math.abs(p.vy); }
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 4;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+    return { init, draw };
+  }
 
   function swarmSketch(canvas){
     const ctx = canvas.getContext('2d');
@@ -759,7 +841,7 @@
     return { init, draw };
   }
 
-  const sketches = { swarm: swarmSketch, flow: flowSketch, cells: cellsSketch, orbit: orbitSketch, wave: waveSketch, boids: boidsSketch };
+  const sketches = { playground: playgroundSketch, swarm: swarmSketch, flow: flowSketch, cells: cellsSketch, orbit: orbitSketch, wave: waveSketch, boids: boidsSketch };
 
   const tiles = document.querySelectorAll('#tile-grid .tile');
   const instances = [];
